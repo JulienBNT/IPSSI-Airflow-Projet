@@ -49,11 +49,9 @@ def log_start() -> dict:
 
 @task(task_id="log_anomaly", trigger_rule="all_done", retries=0)
 def log_anomaly() -> None:
-    """Garde qualité : se skippe si aucune anomalie, échoue s'il y en a.
-
-    - Aucun rejet  => AirflowSkipException (chemin nominal, tâche skippée).
-    - >= 1 rejet   => AirflowException (chemin d'échec, le run est marqué failed).
-    retries=0 : une anomalie de données est déterministe, inutile de réessayer.
+    """
+    Aucun rejet  => AirflowSkipException (chemin nominal, tâche skippée).
+    >= 1 rejet   => AirflowException (chemin d'échec, le run est marqué failed).
     """
     ctx = get_current_context()
     run_id = ctx["run_id"]
