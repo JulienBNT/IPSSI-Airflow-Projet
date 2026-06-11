@@ -6,7 +6,7 @@ Pipeline Airflow de récupération, transformation et analyse des taux de change
 
 Le pipeline tourne toutes les minutes et effectue les étapes suivantes :
 
-1. **Extraction** — appel à l'API Frankfurter pour récupérer les taux EUR → USD, GBP, JPY, CHF, CAD, AUD
+1. **Extraction** — appel à l'API Frankfurter pour récupérer les taux EUR → USD, GBP, JPY, CHF, CAD, AUD; par défaut et configurable
 2. **Chargement brut** — sauvegarde de la réponse brute dans `fx.raw_exchange_rates`
 3. **Transformation** — normalisation en table structurée `fx.exchange_rates` (1 ligne par paire)
 4. **Contrôle qualité** — validation sur 5 dimensions (complétude, structure, cohérence, fraîcheur, unicité) ; les lignes invalides sont archivées dans `fx.rejected_exchange_rates`
@@ -40,6 +40,8 @@ Coller la valeur obtenue dans `.env` :
 ```
 FERNET_KEY=<valeur générée>
 ```
+
+> La clé Fernet est utilisée par Airflow pour chiffrer les mots de passe et tokens stockés en base (connexions, variables sensibles). Sans elle, Airflow refuse de démarrer.
 
 ### 2. Démarrer les services
 
