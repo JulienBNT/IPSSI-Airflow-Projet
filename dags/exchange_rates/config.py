@@ -9,3 +9,6 @@ CURRENCIES_DEFAULT = os.environ.get("AIRFLOW_VAR_EXCHANGE_RATE_CURRENCIES", "USD
 
 # seuil de fraîcheur (en jours) — un taux dont la date dépasse
 FRESHNESS_DAYS_DEFAULT = int(os.environ.get("AIRFLOW_VAR_EXCHANGE_RATE_FRESHNESS_DAYS", 3))
+
+# seuil d'alerte (en %) — écart relatif entre deux exécutions consécutives déclenchant une alerte
+ALERT_THRESHOLD_DEFAULT = float(os.environ.get("AIRFLOW_VAR_EXCHANGE_RATE_ALERT_THRESHOLD", 2.0))

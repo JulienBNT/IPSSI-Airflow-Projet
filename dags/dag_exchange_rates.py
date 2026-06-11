@@ -10,6 +10,7 @@ from exchange_rates.extract import extract_rates
 from exchange_rates.load import load_raw
 from exchange_rates.transform import transform_rates
 from exchange_rates.quality import quality_check
+from exchange_rates.alerts import check_alerts
 
 
 @dag(
@@ -50,13 +51,15 @@ def exchange_rates_pipeline():
     raw_id = load_raw(raw)
     result = transform_rates(raw)
     quality = quality_check(raw, raw_id)
+    alerts = check_alerts(quality)
     anomaly = log_anomaly()
     log_end_task = log_end()
 
     log_start_task >> raw >> raw_id
     raw_id >> [result, quality]
-    [raw, raw_id, result, quality] >> anomaly
-    [result, quality, anomaly] >> log_end_task
+    quality >> alerts
+    [raw, raw_id, result, quality, alerts] >> anomaly
+    [result, quality, alerts, anomaly] >> log_end_task
 
 
 exchange_rates_pipeline()
