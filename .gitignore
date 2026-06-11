@@ -4,3 +4,4 @@ CLAUDE.md
 .claude
 logs
 archive
+__pycache__
