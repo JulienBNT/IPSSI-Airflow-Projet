@@ -7,6 +7,7 @@ from airflow.sdk import dag, Param
 from exchange_rates.config import BASE_DEFAULT, CURRENCIES_DEFAULT
 from exchange_rates.lifecycle import on_task_failure, log_start, log_anomaly, log_end
 from exchange_rates.extract import extract_rates
+from exchange_rates.load import load_raw
 from exchange_rates.transform import transform_rates
 
 
@@ -45,12 +46,13 @@ from exchange_rates.transform import transform_rates
 def exchange_rates_pipeline():
     log_start_task = log_start()
     raw = extract_rates()
+    raw_id = load_raw(raw)             # Personne 2 : ingestion brute en base
     result = transform_rates(raw)
     anomaly = log_anomaly()
     log_end_task = log_end()
 
-    log_start_task >> raw
-    [raw, result] >> anomaly
+    log_start_task >> raw >> raw_id >> result
+    [raw, raw_id, result] >> anomaly
     [result, anomaly] >> log_end_task
 
 
