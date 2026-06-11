@@ -9,6 +9,7 @@ from exchange_rates.lifecycle import on_task_failure, log_start, log_anomaly, lo
 from exchange_rates.extract import extract_rates
 from exchange_rates.load import load_raw
 from exchange_rates.transform import transform_rates
+from exchange_rates.quality import quality_check
 
 
 @dag(
@@ -46,14 +47,16 @@ from exchange_rates.transform import transform_rates
 def exchange_rates_pipeline():
     log_start_task = log_start()
     raw = extract_rates()
-    raw_id = load_raw(raw)             # Personne 2 : ingestion brute en base
+    raw_id = load_raw(raw)
     result = transform_rates(raw)
+    quality = quality_check(raw, raw_id)
     anomaly = log_anomaly()
     log_end_task = log_end()
 
-    log_start_task >> raw >> raw_id >> result
-    [raw, raw_id, result] >> anomaly
-    [result, anomaly] >> log_end_task
+    log_start_task >> raw >> raw_id
+    raw_id >> [result, quality]
+    [raw, raw_id, result, quality] >> anomaly
+    [result, quality, anomaly] >> log_end_task
 
 
 exchange_rates_pipeline()
