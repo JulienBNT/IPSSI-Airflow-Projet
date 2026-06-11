@@ -9,6 +9,7 @@ import logging
 from datetime import datetime, timezone
 
 import psycopg2
+from airflow.exceptions import AirflowException, AirflowSkipException
 from airflow.hooks.base import BaseHook
 from airflow.sdk import get_current_context, task
 
@@ -46,9 +47,14 @@ def log_start() -> dict:
     return {"run_id": run_id}
 
 
-@task(task_id="log_anomaly", trigger_rule="all_done")
-def log_anomaly() -> dict:
-    """Détecte et trace les anomalies de qualité à l'issue du pipeline."""
+@task(task_id="log_anomaly", trigger_rule="all_done", retries=0)
+def log_anomaly() -> None:
+    """Garde qualité : se skippe si aucune anomalie, échoue s'il y en a.
+
+    - Aucun rejet  => AirflowSkipException (chemin nominal, tâche skippée).
+    - >= 1 rejet   => AirflowException (chemin d'échec, le run est marqué failed).
+    retries=0 : une anomalie de données est déterministe, inutile de réessayer.
+    """
     ctx = get_current_context()
     run_id = ctx["run_id"]
     ti = ctx["ti"]
@@ -56,12 +62,12 @@ def log_anomaly() -> dict:
     quality_result = ti.xcom_pull(task_ids="quality_check") or {}
     rejected = quality_result.get("rejected", 0)
 
-    if rejected:
-        log.warning("[lifecycle] run=%s : %d ligne(s) rejetée(s)", run_id, rejected)
-    else:
+    if not rejected:
         log.info("[lifecycle] run=%s : aucune anomalie détectée", run_id)
+        raise AirflowSkipException("Aucune anomalie — tâche skippée")
 
-    return {"run_id": run_id, "rejected": rejected}
+    log.error("[lifecycle] run=%s : %d ligne(s) rejetée(s) — anomalie qualité", run_id, rejected)
+    raise AirflowException(f"Anomalie qualité : {rejected} ligne(s) rejetée(s) (run {run_id})")
 
 
 @task(task_id="log_end", trigger_rule="all_done")
