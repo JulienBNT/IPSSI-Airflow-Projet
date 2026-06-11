@@ -6,6 +6,7 @@ Gestion du cycle de vie du run : démarrage, anomalies, bilan final.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
 import psycopg2
 from airflow.hooks.base import BaseHook
@@ -67,17 +68,19 @@ def log_anomaly() -> dict:
 def log_end() -> dict:
     """Compile les compteurs du run et écrit le bilan dans fx.ingestion_logs."""
     ctx = get_current_context()
-    run_id = ctx["run_id"]
-    execution_date = ctx["logical_date"]
+    dag_run = ctx["dag_run"]
+    run_id = dag_run.run_id
+    # logical_date est None/absent pour un run manuel => fallback sur l'heure courante
+    execution_date = dag_run.logical_date or datetime.now(timezone.utc)
     ti = ctx["ti"]
 
-    quality_result   = ti.xcom_pull(task_ids="quality_check")   or {}
-    transform_result = ti.xcom_pull(task_ids="transform_rates") or {}
+    quality_result = ti.xcom_pull(task_ids="quality_check") or {}
 
-    lignes_recues   = quality_result.get("total",    0)
+    # Clés renvoyées par quality_check (Personne 3) : received / valid / rejected / inserted
+    lignes_recues   = quality_result.get("received", 0)
     lignes_valides  = quality_result.get("valid",    0)
     lignes_rejetees = quality_result.get("rejected", 0)
-    lignes_inserees = transform_result.get("inserted", lignes_valides)
+    lignes_inserees = quality_result.get("inserted", lignes_valides)
 
     if lignes_rejetees == 0 and lignes_valides > 0:
         status = "success"
