@@ -1,5 +1,5 @@
 """
-lifecycle.py Personne 5 : Analytics Engineer & Monitoring
+lifecycle.py: Analytics Engineer & Monitoring
 Gestion du cycle de vie du run : démarrage, anomalies, bilan final.
 Écrit dans fx.ingestion_logs (1 ligne par run, idempotent).
 """
