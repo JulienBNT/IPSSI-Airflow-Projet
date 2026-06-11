@@ -62,7 +62,7 @@ x-airflow-common:
     AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
     AIRFLOW__CORE__FERNET_KEY: ${FERNET_KEY}
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
-    AIRFLOW__CORE__LOAD_EXAMPLES: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://airflow-apiserver:8080/execution/'
     AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET:-airflow_jwt_secret}
     AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW__API_AUTH__JWT_ISSUER:-airflow}
@@ -88,8 +88,11 @@ x-airflow-common:
       condition: service_healthy
     postgres:
       condition: service_healthy
+    exchangedb:
+      condition: service_healthy
 
 services:
+  # Métabase interne d'Airflow (NE PAS y mettre les données métier).
   postgres:
     image: postgres:16
     environment:
@@ -100,6 +103,25 @@ services:
       - postgres-db-volume:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: always
+
+  # ExchangeDB : PostgreSQL dédié aux données métier (taux de change).
+  exchangedb:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: exchange
+      POSTGRES_PASSWORD: exchange
+      POSTGRES_DB: exchangedb
+    ports:
+      - "5433:5432"   # accès depuis l'hôte (Metabase/DBeaver) : localhost:5433
+    volumes:
+      - exchange-db-volume:/var/lib/postgresql/data
+      - ./sql/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "exchange", "-d", "exchangedb"]
       interval: 10s
       retries: 5
       start_period: 5s
@@ -335,3 +357,4 @@ services:
 
 volumes:
   postgres-db-volume:
+  exchange-db-volume:
