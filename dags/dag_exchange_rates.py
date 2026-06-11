@@ -3,12 +3,17 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 
+import os
+
 import requests
 from airflow.sdk import dag, task, Param, Variable
 
 log = logging.getLogger(__name__)
 
 TIMEOUT_DEFAULT = 10
+API_URL_DEFAULT = "https://api.frankfurter.dev/v2/rates"
+BASE_DEFAULT = os.environ.get("AIRFLOW_VAR_EXCHANGE_RATE_BASE", "EUR")
+CURRENCIES_DEFAULT = os.environ.get("AIRFLOW_VAR_EXCHANGE_RATE_CURRENCIES", "USD,GBP,JPY,CHF,CAD,AUD")
 
 
 def _on_task_failure(context: dict) -> None:
@@ -39,7 +44,7 @@ def _on_task_failure(context: dict) -> None:
     },
     params={
         "base": Param(
-            default="EUR",
+            default=BASE_DEFAULT,
             type="string",
             title="Devise de base",
             description="Code ISO 4217 de la devise depuis laquelle les taux sont calculés.",
@@ -47,7 +52,7 @@ def _on_task_failure(context: dict) -> None:
             maxLength=3,
         ),
         "quotes": Param(
-            default=["USD", "GBP", "JPY", "CHF", "CAD", "AUD"],
+            default=CURRENCIES_DEFAULT.split(","),
             type="array",
             title="Devises cibles",
             description="Liste des codes ISO 4217 des devises à récupérer (5 minimum).",
@@ -65,9 +70,8 @@ def exchange_rates_pipeline():
 
     @task(task_id="extract_rates")
     def extract_rates(**context) -> list:
-        params = context["params"]
-        base: str = params["base"].strip().upper()
-        quotes: list[str] = [q.strip().upper() for q in params["quotes"] if q.strip()]
+        base: str = context["params"]["base"].strip().upper()
+        quotes: list[str] = [c.strip().upper() for c in context["params"]["quotes"] if c.strip()]
 
         if len(quotes) < 5:
             raise ValueError(
@@ -75,7 +79,8 @@ def exchange_rates_pipeline():
             )
 
         timeout = int(Variable.get("exchange_rate_api_timeout", default=str(TIMEOUT_DEFAULT)))
-        url = f"https://api.frankfurter.dev/v2/rates?base={base}&quotes={','.join(quotes)}"
+        api_url = Variable.get("exchange_rate_api_url", default=API_URL_DEFAULT)
+        url = f"{api_url}?base={base}&quotes={','.join(quotes)}"
 
         log.info("Appel API Frankfurter — URL=%s", url)
 
