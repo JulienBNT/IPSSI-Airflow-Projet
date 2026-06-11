@@ -59,3 +59,22 @@ CREATE TABLE IF NOT EXISTS fx.rejected_exchange_rates (
         quality_dimension IN ('completude','coherence','fraicheur','unicite','structure')
     )
 );
+
+
+-- Personne 4 : table d'alertes (variations de taux dépassant le seuil configurable)
+CREATE TABLE IF NOT EXISTS fx.alerts (
+    alert_id          BIGSERIAL      PRIMARY KEY,
+    base_currency     CHAR(3)        NOT NULL,               -- devise de base
+    quote_currency    CHAR(3)        NOT NULL,               -- devise de cotation
+    previous_rate     NUMERIC(20,10) NOT NULL,               -- taux de l'exécution précédente
+    current_rate      NUMERIC(20,10) NOT NULL,               -- taux de l'exécution courante
+    deviation_pct     NUMERIC(10,4)  NOT NULL,               -- écart relatif en %
+    threshold_pct     NUMERIC(10,4)  NOT NULL,               -- seuil utilisé lors du run
+    rate_date_prev    DATE           NOT NULL,               -- date du taux de référence
+    rate_date_curr    DATE           NOT NULL,               -- date du taux courant
+    run_id            TEXT,                                  -- run Airflow source
+    alerted_at        TIMESTAMPTZ    NOT NULL DEFAULT now(), -- horodatage de l'alerte
+
+    -- idempotence : rejouer un run met à jour l'alerte sans créer de doublon
+    CONSTRAINT uq_alert_run UNIQUE (base_currency, quote_currency, run_id)
+);
