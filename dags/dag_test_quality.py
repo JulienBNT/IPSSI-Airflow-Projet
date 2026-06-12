@@ -24,7 +24,7 @@ from exchange_rates.load import load_raw
     catchup=False,
     tags=["test", "quality"],
     default_args={
-        "owner": "personne3",
+        "owner": "damien",
         "retries": 0,
     }
 )

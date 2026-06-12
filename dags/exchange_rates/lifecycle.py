@@ -80,7 +80,7 @@ def log_end() -> dict:
 
     quality_result = ti.xcom_pull(task_ids="quality_check") or {}
 
-    # Clés renvoyées par quality_check (Personne 3) : received / valid / rejected / inserted
+    # Clés renvoyées par quality_check : received / valid / rejected / inserted
     lignes_recues   = quality_result.get("received", 0)
     lignes_valides  = quality_result.get("valid",    0)
     lignes_rejetees = quality_result.get("rejected", 0)
