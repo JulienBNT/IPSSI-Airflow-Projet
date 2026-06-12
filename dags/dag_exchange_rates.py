@@ -8,7 +8,6 @@ from exchange_rates.config import BASE_DEFAULT, CURRENCIES_DEFAULT
 from exchange_rates.lifecycle import on_task_failure, log_start, log_anomaly, log_end
 from exchange_rates.extract import extract_rates
 from exchange_rates.load import load_raw
-from exchange_rates.transform import transform_rates
 from exchange_rates.quality import quality_check
 from exchange_rates.alerts import check_alerts
 
@@ -50,17 +49,16 @@ def exchange_rates_pipeline():
     log_start_task = log_start()
     raw = extract_rates()
     raw_id = load_raw(raw)
-    result = transform_rates(raw)
     quality = quality_check(raw, raw_id)
     alerts = check_alerts(quality)
     anomaly = log_anomaly()
     log_end_task = log_end()
 
     log_start_task >> raw >> raw_id
-    raw_id >> [result, quality]
+    raw_id >> quality
     quality >> alerts
-    [raw, raw_id, result, quality, alerts] >> anomaly
-    [result, quality, alerts, anomaly] >> log_end_task
+    [raw, raw_id, quality, alerts] >> anomaly
+    [quality, alerts, anomaly] >> log_end_task
 
 
 exchange_rates_pipeline()
