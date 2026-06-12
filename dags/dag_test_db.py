@@ -5,9 +5,10 @@ Injecte un lot de données volontairement mixtes (valides + invalides) pour vali
 de bout en bout les 3 tables : la brute (raw_exchange_rates), la structurée
 (exchange_rates) et le cimetière (rejected_exchange_rates).
 
-Chaîne : generate_bad_data >> load_raw >> quality_check >> verify_db >> log_anomaly
+Chaîne : generate_bad_data >> load_raw >> quality_check >> load_rates >> verify_db >> log_anomaly
 - load_raw       : la réponse mixte est stockée en brut (JSONB).
-- quality_check  : route les valides vers la structurée, les invalides vers le cimetière.
+- quality_check  : valide et route chaque ligne (valide / rejetée), sans écrire en BDD.
+- load_rates     : persiste valides > structurée et rejets > cimetière (1 transaction).
 - verify_db      : relit les 3 tables pour CE run et logue les compteurs.
 - log_anomaly    : détecte l'anomalie (lignes rejetées > 0) => la tâche ÉCHOUE.
 
@@ -27,7 +28,7 @@ from airflow.sdk import dag, get_current_context, task
 # Rendre le package exchange_rates importable
 sys.path.insert(0, os.path.dirname(__file__))
 
-from exchange_rates.load import load_raw, POSTGRES_CONN_ID
+from exchange_rates.load import load_raw, load_rates, POSTGRES_CONN_ID
 from exchange_rates.quality import quality_check
 from exchange_rates.lifecycle import log_anomaly
 
@@ -109,10 +110,11 @@ def test_db_pipeline():
     batch = generate_bad_data()
     raw_id = load_raw(batch)
     quality = quality_check(batch, raw_id)
+    load = load_rates(quality)
     verify = verify_db()
     anomaly = log_anomaly()
 
-    batch >> raw_id >> quality >> verify >> anomaly
+    batch >> raw_id >> quality >> load >> verify >> anomaly
 
 
 test_db_pipeline()

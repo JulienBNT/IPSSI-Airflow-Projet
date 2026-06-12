@@ -6,15 +6,11 @@ import re
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 
-from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.sdk import task, Variable
 
 from exchange_rates.config import FRESHNESS_DAYS_DEFAULT
 
 log = logging.getLogger(__name__)
-
-# Connection ID Airflow vers PostgreSQL (Admin > Connections) — partagé avec load.py
-POSTGRES_CONN_ID = "fx_postgres"
 
 # Dimensions de qualité contrôlées (alignées sur la contrainte CHECK de init_db.sql)
 DIM_COMPLETUDE = "completude"
@@ -25,25 +21,6 @@ DIM_UNICITE = "unicite"
 
 # Codes ISO 4217 : 3 lettres majuscules
 ISO_CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
-
-# Chargement idempotent : rejouer un run met à jour la ligne sans créer de doublon.
-INSERT_VALID_SQL = """
-    INSERT INTO fx.exchange_rates
-        (base_currency, quote_currency, rate, rate_date, raw_id, run_id)
-    VALUES (%s, %s, %s, %s, %s, %s)
-    ON CONFLICT (base_currency, quote_currency, rate_date) DO UPDATE
-        SET rate      = EXCLUDED.rate,
-            raw_id    = EXCLUDED.raw_id,
-            run_id    = EXCLUDED.run_id,
-            loaded_at = now();
-"""
-
-INSERT_REJECTED_SQL = """
-    INSERT INTO fx.rejected_exchange_rates
-        (base_currency, quote_currency, rate, rate_date, quality_dimension,
-         rejection_reason, raw_record, raw_id, run_id)
-    VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s);
-"""
 
 
 def _as_text(value) -> str | None:
@@ -119,12 +96,13 @@ def _validate_row(item, seen_keys: set, run_date: date, freshness_days: int):
 
 @task(task_id="quality_check")
 def quality_check(raw_data: list, raw_id: int, **context) -> dict:
-    """Contrôle qualité
-
+    """Contrôle qualité — validation pure (aucun accès BDD).
     Applique 5 dimensions de qualité (complétude, structure, cohérence,
-    fraîcheur, unicité) à chaque paire de devises. Les lignes valides sont
-    chargées dans fx.exchange_rates (idempotent), les lignes invalides sont
-    tracées et chargées dans le cimetière fx.rejected_exchange_rates.
+    fraîcheur, unicité) à chaque paire de devises et **route** chaque ligne :
+    les valides sont formatées (1 ligne par paire et par date), les invalides
+    sont tracées avec la dimension fautive et le motif. 
+    La persistance est déléguée en aval (load_rates) : cette tâche se contente de renvoyer les deux
+    lots en XCom, sérialisés en types JSON-safe.
     """
     if not raw_data:
         raise ValueError("Aucune donnée à contrôler")
@@ -139,8 +117,8 @@ def quality_check(raw_data: list, raw_id: int, **context) -> dict:
     )
 
     seen_keys: set = set()
-    valid_rows: list[tuple] = []
-    rejected_rows: list[tuple] = []
+    valid_rows: list[dict] = []
+    rejected_rows: list[dict] = []
 
     for item in raw_data:
         failure = _validate_row(item, seen_keys, run_date, freshness_days)
@@ -150,41 +128,37 @@ def quality_check(raw_data: list, raw_id: int, **context) -> dict:
             quote = str(item["quote"]).strip().upper()
             rate = Decimal(str(item["rate"]))
             rate_date = datetime.strptime(str(item["date"]).strip(), "%Y-%m-%d").date()
-            valid_rows.append((base, quote, rate, rate_date, raw_id, run_id))
+            # rate/rate_date en str : XCom sérialise en JSON, Postgres recaste à l'INSERT
+            valid_rows.append(
+                {
+                    "base_currency": base,
+                    "quote_currency": quote,
+                    "rate": str(rate),
+                    "rate_date": rate_date.isoformat(),
+                    "raw_id": raw_id,
+                    "run_id": run_id,
+                }
+            )
         else:
             dimension, reason = failure
             record = item if isinstance(item, dict) else {"value": item}
             rejected_rows.append(
-                (
-                    _as_text(record.get("base") if isinstance(record, dict) else None),
-                    _as_text(record.get("quote") if isinstance(record, dict) else None),
-                    _as_text(record.get("rate") if isinstance(record, dict) else None),
-                    _as_text(record.get("date") if isinstance(record, dict) else None),
-                    dimension,
-                    reason,
-                    json.dumps(record, default=str),
-                    raw_id,
-                    run_id,
-                )
+                {
+                    "base_currency": _as_text(record.get("base")),
+                    "quote_currency": _as_text(record.get("quote")),
+                    "rate": _as_text(record.get("rate")),
+                    "rate_date": _as_text(record.get("date")),
+                    "quality_dimension": dimension,
+                    "rejection_reason": reason,
+                    "raw_record": json.dumps(record, default=str),
+                    "raw_id": raw_id,
+                    "run_id": run_id,
+                }
             )
             log.warning("[QUALITY][REJET] dimension=%s | %s", dimension, reason)
 
-    hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
-
-    # executemany + ON CONFLICT pour un chargement idempotent des lignes valides
-    if valid_rows:
-        conn = hook.get_conn()
-        with conn.cursor() as cur:
-            cur.executemany(INSERT_VALID_SQL, valid_rows)
-        conn.commit()
-
-    # traçage des lignes invalides dans le cimetière
-    if rejected_rows:
-        conn = hook.get_conn()
-        with conn.cursor() as cur:
-            cur.executemany(INSERT_REJECTED_SQL, rejected_rows)
-        conn.commit()
-
+    # Compteurs.
+    # 'inserted' = nb de valides : load_rates les insère toutes (idempotent).
     summary = {
         "status": "success",
         "received": len(raw_data),
@@ -192,15 +166,17 @@ def quality_check(raw_data: list, raw_id: int, **context) -> dict:
         "rejected": len(rejected_rows),
         "inserted": len(valid_rows),
         "run_id": run_id,
+        # Payloads consommés par les tâches de persistance en aval
+        "valid_rows": valid_rows,
+        "rejected_rows": rejected_rows,
     }
     log.info(
         "[QUALITY] reçues=%(received)d | valides=%(valid)d | rejetées=%(rejected)d | "
-        "insérées=%(inserted)d | seuil_fraicheur=%(fresh)dj | run=%(run)s",
+        "seuil_fraicheur=%(fresh)dj | run=%(run)s",
         {
             "received": summary["received"],
             "valid": summary["valid"],
             "rejected": summary["rejected"],
-            "inserted": summary["inserted"],
             "fresh": freshness_days,
             "run": run_id,
         },
