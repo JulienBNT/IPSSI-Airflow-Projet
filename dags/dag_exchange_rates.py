@@ -21,6 +21,7 @@ from exchange_rates.alerts import check_alerts
     catchup=False,
     is_paused_upon_creation=False,
     default_args={
+        "owner": "oliwer",
         "retries": 3,
         "retry_delay": timedelta(seconds=10),
         "on_failure_callback": on_task_failure,
