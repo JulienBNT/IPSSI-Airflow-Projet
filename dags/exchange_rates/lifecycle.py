@@ -6,8 +6,10 @@ Gestion du cycle de vie du run : démarrage, anomalies, bilan final.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
 import psycopg2
+from airflow.exceptions import AirflowException, AirflowSkipException
 from airflow.hooks.base import BaseHook
 from airflow.sdk import get_current_context, task
 
@@ -45,9 +47,12 @@ def log_start() -> dict:
     return {"run_id": run_id}
 
 
-@task(task_id="log_anomaly", trigger_rule="all_done")
-def log_anomaly() -> dict:
-    """Détecte et trace les anomalies de qualité à l'issue du pipeline."""
+@task(task_id="log_anomaly", trigger_rule="all_done", retries=0)
+def log_anomaly() -> None:
+    """
+    Aucun rejet  => AirflowSkipException (chemin nominal, tâche skippée).
+    >= 1 rejet   => AirflowException (chemin d'échec, le run est marqué failed).
+    """
     ctx = get_current_context()
     run_id = ctx["run_id"]
     ti = ctx["ti"]
@@ -55,29 +60,31 @@ def log_anomaly() -> dict:
     quality_result = ti.xcom_pull(task_ids="quality_check") or {}
     rejected = quality_result.get("rejected", 0)
 
-    if rejected:
-        log.warning("[lifecycle] run=%s : %d ligne(s) rejetée(s)", run_id, rejected)
-    else:
+    if not rejected:
         log.info("[lifecycle] run=%s : aucune anomalie détectée", run_id)
+        raise AirflowSkipException("Aucune anomalie — tâche skippée")
 
-    return {"run_id": run_id, "rejected": rejected}
+    log.error("[lifecycle] run=%s : %d ligne(s) rejetée(s) — anomalie qualité", run_id, rejected)
+    raise AirflowException(f"Anomalie qualité : {rejected} ligne(s) rejetée(s) (run {run_id})")
 
 
 @task(task_id="log_end", trigger_rule="all_done")
 def log_end() -> dict:
     """Compile les compteurs du run et écrit le bilan dans fx.ingestion_logs."""
     ctx = get_current_context()
-    run_id = ctx["run_id"]
-    execution_date = ctx["logical_date"]
+    dag_run = ctx["dag_run"]
+    run_id = dag_run.run_id
+    # logical_date est None/absent pour un run manuel => fallback sur l'heure courante
+    execution_date = dag_run.logical_date or datetime.now(timezone.utc)
     ti = ctx["ti"]
 
-    quality_result   = ti.xcom_pull(task_ids="quality_check")   or {}
-    transform_result = ti.xcom_pull(task_ids="transform_rates") or {}
+    quality_result = ti.xcom_pull(task_ids="quality_check") or {}
 
-    lignes_recues   = quality_result.get("total",    0)
+    # Clés renvoyées par quality_check (Personne 3) : received / valid / rejected / inserted
+    lignes_recues   = quality_result.get("received", 0)
     lignes_valides  = quality_result.get("valid",    0)
     lignes_rejetees = quality_result.get("rejected", 0)
-    lignes_inserees = transform_result.get("inserted", lignes_valides)
+    lignes_inserees = quality_result.get("inserted", lignes_valides)
 
     if lignes_rejetees == 0 and lignes_valides > 0:
         status = "success"
