@@ -88,9 +88,8 @@ docker compose down -v
 │   └── exchange_rates/
 │       ├── config.py             # Paramètres (devises, API)
 │       ├── extract.py            # Appel API Frankfurter
-│       ├── load.py               # Insertion en base
-│       ├── transform.py          # Normalisation
-│       ├── quality.py            # Contrôle qualité (5 dimensions)
+│       ├── load.py               # Ingestion brute + persistance des taux qualifiés
+│       ├── quality.py            # Contrôle qualité (5 dimensions, validation pure)
 │       ├── alerts.py             # Détection de variations anormales
 │       └── lifecycle.py          # Logging du cycle de vie du run
 ├── sql/
@@ -106,17 +105,13 @@ docker compose down -v
 graph TD
     A([log_start]) --> B[extract_rates]
     B --> C[load_raw]
-    C --> D[transform_rates]
-    C --> E[quality_check]
+    C --> D[quality_check]
+    D --> E[load_rates]
     E --> F[check_alerts]
 
-    B   -->|all_done| G
-    C   -->|all_done| G
-    D   -->|all_done| G
     E   -->|all_done| G
     F   -->|all_done| G([log_anomaly])
 
-    D   -->|all_done| H
     E   -->|all_done| H
     F   -->|all_done| H
     G   -->|all_done| H([log_end])
