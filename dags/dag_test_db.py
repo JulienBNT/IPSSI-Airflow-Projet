@@ -1,5 +1,5 @@
 """
-DAG de test BDD (Personne 2).
+DAG de test BDD.
 
 Injecte un lot de données volontairement mixtes (valides + invalides) pour valider
 de bout en bout les 3 tables : la brute (raw_exchange_rates), la structurée
@@ -36,13 +36,13 @@ log = logging.getLogger(__name__)
 
 @dag(
     dag_id="test_db_with_bad_data",
-    description="Test BDD Personne 2 : brute + structurée + cimetière, avec détection d'anomalie",
+    description="Test BDD : brute + structurée + cimetière, avec détection d'anomalie",
     schedule=None,
     start_date=datetime(2026, 6, 1),
     catchup=False,
     is_paused_upon_creation=False,
-    tags=["test", "bdd", "personne2"],
-    default_args={"owner": "personne2", "retries": 0},
+    tags=["test", "bdd", "matis"],
+    default_args={"owner": "matis", "retries": 0},
 )
 def test_db_pipeline():
 

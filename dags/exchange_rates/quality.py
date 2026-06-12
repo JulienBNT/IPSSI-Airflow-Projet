@@ -119,7 +119,7 @@ def _validate_row(item, seen_keys: set, run_date: date, freshness_days: int):
 
 @task(task_id="quality_check")
 def quality_check(raw_data: list, raw_id: int, **context) -> dict:
-    """Contrôle qualité (Personne 3).
+    """Contrôle qualité
 
     Applique 5 dimensions de qualité (complétude, structure, cohérence,
     fraîcheur, unicité) à chaque paire de devises. Les lignes valides sont
